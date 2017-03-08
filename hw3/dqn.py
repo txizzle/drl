@@ -7,6 +7,7 @@ import tensorflow                as tf
 import tensorflow.contrib.layers as layers
 from collections import namedtuple
 from dqn_utils import *
+import pickle
 
 OptimizerSpec = namedtuple("OptimizerSpec", ["constructor", "kwargs", "lr_schedule"])
 
@@ -130,17 +131,18 @@ def learn(env,
     # YOUR CODE HERE
 
     ######
-
-    #TODO: total_error? Calculate error from Q values of obs_t_float and obs_tp1_float?
-    # Use Huber loss for this?
-
-
+    # Declare variables for logging
+    t_log = []
+    mean_reward_log = []
+    best_mean_log = []
+    episodes_log = []
+    exploration_log = []
+    learning_rate_log = []
     current_q_func = q_func(obs_t_float, num_actions, scope="q_func", reuse=False) # Current Q-Value Function
     q_func_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='q_func')
 
     target_q_func = q_func(obs_tp1_float, num_actions, scope="target_q_func", reuse=False) # Target Q-Value Function
     target_q_func_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='target_q_func')
-
 
     act_t = tf.one_hot(act_t_ph, depth=num_actions, dtype=tf.float32, name="action_one_hot")
     q_act_t = tf.reduce_sum(act_t*current_q_func, axis=1)
@@ -173,6 +175,7 @@ def learn(env,
     best_mean_episode_reward = -float('inf')
     last_obs = env.reset()
     LOG_EVERY_N_STEPS = 10000
+    SAVE_EVERY_N_STEPS = 200000
 
     for t in itertools.count():
         ### 1. Check stopping criterion
@@ -233,8 +236,8 @@ def learn(env,
             act = env.action_space.sample()
         else:
             # With probability 1 - epsilon, choose the best action from Q
-            input_batch = replay_buffer.encode_recent_observation(last_obs)
-            q_vals = session.run(current_q_func, {obs_t_ph: input_batch})
+            input_batch = replay_buffer.encode_recent_observation()
+            q_vals = session.run(current_q_func, {obs_t_ph: input_batch[None, :]})
             act = np.argmax(q_vals)
 
         # Step simulator forward one step
@@ -303,7 +306,9 @@ def learn(env,
                    obs_t_ph: obs_t_batch,
                    obs_tp1_ph: obs_tp1_batch,
                 })    
-            print("is model initiliazed: " + str(model_initialized))
+                session.run(update_target_fn)
+                model_initialized = True
+            # print("is model initiliazed: " + str(model_initialized))
 
             # 3.c Train the model using train_fn and total_error
             session.run(train_fn, {obs_t_ph: obs_t_batch, act_t_ph: act_batch, rew_t_ph: rew_batch, obs_tp1_ph: obs_tp1_batch,
@@ -323,9 +328,22 @@ def learn(env,
             best_mean_episode_reward = max(best_mean_episode_reward, mean_episode_reward)
         if t % LOG_EVERY_N_STEPS == 0 and model_initialized:
             print("Timestep %d" % (t,))
+            t_log.append(t)
             print("mean reward (100 episodes) %f" % mean_episode_reward)
+            mean_reward_log.append(mean_episode_reward)
             print("best mean reward %f" % best_mean_episode_reward)
+            best_mean_log.append(best_mean_episode_reward)
             print("episodes %d" % len(episode_rewards))
+            episodes_log.append(len(episode_rewards))
             print("exploration %f" % exploration.value(t))
+            exploration_log.append(exploration.value(t))
             print("learning_rate %f" % optimizer_spec.lr_schedule.value(t))
+            learning_rate_log.append(optimizer_spec.lr_schedule.value(t))
             sys.stdout.flush()
+
+        if t % SAVE_EVERY_N_STEPS == 0 and model_initialized:
+            training_log = ({'t_log': t_log, 'mean_reward_log': mean_reward_log, 'best_mean_log': best_mean_log, 'episodes_log': episodes_log,
+                'exploration_log': exploration_log, 'learning_rate_log': learning_rate_log})
+            output_file_name = args.envname + '_step' + str(t) + '_data.pkl'
+            with open(output_file_name, 'wb') as f:
+                pickle.dump(expert_data, f)
