@@ -128,6 +128,7 @@ def main():
     env = get_env(task, seed)
     session = get_session()
     atari_learn(env, session, num_timesteps=task.max_timesteps)
+    # atari_learn(env, session, num_timesteps=10000000)
 
 if __name__ == "__main__":
     main()
