@@ -141,8 +141,12 @@ def learn(env,
     target_q_func = q_func(obs_tp1_float, num_actions, scope="target_q_func", reuse=False) # Target Q-Value Function
     target_q_func_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='target_q_func')
 
+
+    act_t = tf.one_hot(act_t_ph, depth=num_actions, dtype=tf.float32, name="action_one_hot")
+    q_act_t = tf.reduce_sum(act_t*current_q_func, axis=1)
+
     y = rew_t_ph + gamma * tf.reduce_max(target_q_func, reduction_indices=[1]) #which axis for max?
-    total_error = tf.square(tf.subtract(y, tf.gather_nd(current_q_func, [act_t_ph]))) #(reward + gamma*V(s') - Q(s, a))**2 
+    total_error = tf.square(tf.subtract(y, q_act_t)) #(reward + gamma*V(s') - Q(s, a))**2 
     
     # construct optimization op (with gradient clipping)
     learning_rate = tf.placeholder(tf.float32, (), name="learning_rate")
@@ -212,9 +216,10 @@ def learn(env,
         # print("last_obs: " + str(last_obs))
         # Store last_obs into replay buffer
         idx = replay_buffer.store_frame(last_obs)
-        if t == 0 and not model_initialized:
+
+        if t == 0:
             act, reward, done = env.action_space.sample(), 0, False
-        replay_buffer.store_effect(idx, act, reward, done)
+        
         # print("idx: " + str(idx))
         # print("act: " + str(act))
         # print("reward: " + str(reward))
@@ -233,12 +238,12 @@ def learn(env,
             act = np.argmax(q_vals)
 
         # Step simulator forward one step
-        if done == True: # done was True in last_obs
-            last_obs = env.reset() #TODO: what to set reward to after env.reset()? A: Keep same as before?
-            done = False
-        else:
-            last_obs, reward, done, info = env.step(act)
-        
+        last_obs, reward, done, info = env.step(act)
+        replay_buffer.store_effect(idx, act, reward, done) # Store action taken after last_obs and corresponding reward
+
+        if done == True: # done was True in latest transition; we have already stored that
+            last_obs = env.reset() # Reset observation
+            done = False 
 
         #####
 
