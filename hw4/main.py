@@ -231,28 +231,37 @@ def main_pendulum(logdir, seed, n_iter, gamma, min_timesteps_per_batch, initial_
     sy_ob_no = tf.placeholder(shape=[None, ob_dim], name="ob", dtype=tf.float32) # batch of observations
     sy_ac_n = tf.placeholder(shape=[None], name="ac", dtype=tf.float32) # batch of actions taken by the policy, used for policy gradient computation
     sy_adv_n = tf.placeholder(shape=[None], name="adv", dtype=tf.float32) # advantage function estimate
-    sy_h1 = lrelu(dense(sy_ob_no, 32, "h1", weight_init=normc_initializer(1.0))) # hidden layer TODO: do we need another hidden, h2?
+    sy_h1 = lrelu(dense(sy_ob_no, 32, "h1", weight_init=normc_initializer(1.0))) # hidden layer
+    sy_h2 = lrelu(dense(sy_h1, 8, "h2", weight_init=normc_initializer(0.1))) # final layer
 
-    sy_mean_na = dense(sy_h1, ac_dim, "final", weight_init=normc_initializer(0.1)) # Mean control output. Mean value across each action
+    # New Gaussian parameters are mean and std. Mean is the output of the NN, std is a variable in the loss.
+    sy_mean_na = dense(sy_h2, ac_dim, "final", weight_init=normc_initializer(0.1)) # Mean control output. Mean value across each action
     sy_logstd_a = tf.get_variable("logstdev", [ac_dim], initializer=tf.zeros_initializer()) # Variance
+
+    # Old Gaussian parameters are passed into the tf session
     sy_oldmean_na = tf.placeholder(shape=[None, ac_dim], name='oldmean', dtype=tf.float32) # Mean BEFORE update (just used for KL diagnostic)
     sy_oldlogstd_a = tf.placeholder(shape=[ac_dim], name='oldlogstd', dtype=tf.float32) 
   
-    # Sample actions from Gaussian defined by sy_mean_na and sy_logstd_a
+    # Define new and old Gaussian distributions
     std_a = tf.exp(sy_logstd_a)
-    # print("std_a shape: " + str(std_a.shape))
     oldstd_a = tf.exp(sy_oldlogstd_a)
-    # print(sy_mean_na.get_shape())
-    # Do we need to reshape sy_mean_na to (2600,)?
     action_dist = tf.contrib.distributions.Normal(mu=tf.squeeze(sy_mean_na), sigma=std_a, validate_args=True)
-    sy_sampled_ac = sy_mean_na + tf.random_normal(shape=[1, ac_dim])*std_a # sampled actions, used for defining the policy (NOT computing the policy gradient)
+    old_action_dist = tf.contrib.distributions.Normal(mu=tf.squeeze(sy_oldmean_na), sigma=oldstd_a, validate_args=True)
+        
+    # Sample actions from Gaussian defined by sy_mean_na and sy_logstd_a
+    sy_sampled_ac = tf.squeeze(sy_mean_na) + tf.random_normal(shape=[ac_dim])*std_a # sampled actions, used for defining the policy (NOT computing the policy gradient)
     
     # Get logprobability of actions actually taken (sy_acn_n)
     sy_logprob_n = action_dist.log_pdf(sy_ac_n) # logprobability of actions taken
+    
+    # print("sy_logprob shape: " + str(sy_logprob_n.get_shape()))
     # sy_logprob_n = action_dist.log_pdf(sy_sampled_ac)
-
+    # print("std_a shape: " + str(std_a.shape))
+    # print("sy_mean shape: " + str(sy_mean_na.get_shape()))
+    # print("squeeze sy_mean shape: " + str(tf.squeeze(sy_mean_na)))
+    # Do we need to reshape sy_mean_na to (2600,)?
+    
     # Computing KL and entropy
-    old_action_dist = tf.contrib.distributions.Normal(mu=sy_oldmean_na, sigma=oldstd_a, validate_args=True)
     sy_kl = tf.reduce_mean(tf.contrib.distributions.kl(action_dist, old_action_dist))
     # sy_ent = tf.reduce_sum(tf.log(std_a))
     sy_ent = tf.reduce_mean(action_dist.entropy())
@@ -260,10 +269,13 @@ def main_pendulum(logdir, seed, n_iter, gamma, min_timesteps_per_batch, initial_
     # Define loss function
     sy_surr = - tf.reduce_mean(sy_adv_n * sy_logprob_n) # Loss function that we'll differentiate to get the policy gradient ("surr" is for "surrogate loss")
 
+    # Update and session operations
     sy_stepsize = tf.placeholder(shape=[], dtype=tf.float32) # Symbolic, in case you want to change the stepsize during optimization. (We're not doing that currently)
     update_op = tf.train.AdamOptimizer(sy_stepsize).minimize(sy_surr)
 
-    sess = tf.Session()
+    config = tf.ConfigProto()
+    config.gpu_options.allow_growth = True
+    sess = tf.Session(config = config)
     sess.__enter__() # equivalent to `with sess:`
     tf.global_variables_initializer().run() #pylint: disable=E1101
 
@@ -376,14 +388,14 @@ if __name__ == "__main__":
     if 1:
         general_params = dict(gamma=0.97, animate=False, min_timesteps_per_batch=2500, n_iter=300, initial_stepsize=1e-3)
         params = [
-            dict(logdir='/tmp/ref/linearvf-kl2e-3-seed0', seed=0, desired_kl=2e-3, vf_type='linear', vf_params={}, **general_params),
+            # dict(logdir='/tmp/ref/linearvf-kl2e-3-seed0', seed=0, desired_kl=2e-3, vf_type='linear', vf_params={}, **general_params),
             dict(logdir='/tmp/ref/nnvf-kl2e-3-seed0', seed=0, desired_kl=2e-3, vf_type='nn', vf_params=dict(n_epochs=10, stepsize=1e-3), **general_params),
-            dict(logdir='/tmp/ref/linearvf-kl2e-3-seed1', seed=1, desired_kl=2e-3, vf_type='linear', vf_params={}, **general_params),
-            dict(logdir='/tmp/ref/nnvf-kl2e-3-seed1', seed=1, desired_kl=2e-3, vf_type='nn', vf_params=dict(n_epochs=10, stepsize=1e-3), **general_params),
-            dict(logdir='/tmp/ref/linearvf-kl2e-3-seed2', seed=2, desired_kl=2e-3, vf_type='linear', vf_params={}, **general_params),
-            dict(logdir='/tmp/ref/nnvf-kl2e-3-seed2', seed=2, desired_kl=2e-3, vf_type='nn', vf_params=dict(n_epochs=10, stepsize=1e-3), **general_params),
+            # dict(logdir='/tmp/ref/linearvf-kl2e-3-seed1', seed=1, desired_kl=2e-3, vf_type='linear', vf_params={}, **general_params),
+            # dict(logdir='/tmp/ref/nnvf-kl2e-3-seed1', seed=1, desired_kl=2e-3, vf_type='nn', vf_params=dict(n_epochs=10, stepsize=1e-3), **general_params),
+            # dict(logdir='/tmp/ref/linearvf-kl2e-3-seed2', seed=2, desired_kl=2e-3, vf_type='linear', vf_params={}, **general_params),
+            # dict(logdir='/tmp/ref/nnvf-kl2e-3-seed2', seed=2, desired_kl=2e-3, vf_type='nn', vf_params=dict(n_epochs=10, stepsize=1e-3), **general_params),
         ]
-        # import multiprocessing
-        # p = multiprocessing.Pool()
-        # p.map(main_pendulum1, params)
-        main_pendulum(None, 0, 300, 0.97, 2500, 1e-3, 2e-3, 'linear', {}, False)
+        import multiprocessing
+        p = multiprocessing.Pool()
+        p.map(main_pendulum1, params)
+        # main_pendulum(None, 0, 300, 0.97, 2500, 1e-3, 2e-3, 'linear', {}, False)
