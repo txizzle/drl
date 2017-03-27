@@ -94,6 +94,9 @@ class LinearValueFunction(object):
 
 class NnValueFunction(object):
     save_path = None
+    def __init__(self, n_epochs, stepsize):
+        self.n_epochs = n_epochs
+        self.stepsize = stepsize
     def fit(self, X, y):
         Xp = self.preproc(X)
         sess = tf.get_default_session()
@@ -106,19 +109,30 @@ class NnValueFunction(object):
         sy_Yhat = tf.squeeze(sy_out, name="yhat")
         loss_fn = tf.reduce_mean((sy_Yhat - sy_Y)**2)
         train_op = tf.train.AdamOptimizer(1e-1).minimize(loss_fn)
+
+        tf.add_to_collection('vars', sy_h1)
+        tf.add_to_collection('vars', sy_h2)
+        tf.add_to_collection('vars', sy_out)
+        saver = tf.train.Saver()
+        sess = tf.Session()
         tf.global_variables_initializer().run()
         for i in xrange(10000):
             sess.run(train_op, feed_dict={sy_X:Xp, sy_Y:y})
             if i%1000 == 0:
                 print "training loss at timestep %d = "%i + str(loss_fn.eval(feed_dict={sy_X:Xp, sy_Y:y}))
-
+        saver.save(sess, 'my-model')
 
     def predict(self, X):
         if self.save_path == None:
             return np.zeros(X.shape[0])
         Xp = self.preproc(X)
         sess = tf.get_default_session()
-        tf.global_variables_initializer().run()
+        new_saver = tf.train.import_meta_graph('my-model.meta')
+        new_saver.restore(sess, tf.train.latest_checkpoint('./'))
+        all_vars = tf.get_collection('vars')
+        for v in all_vars:
+            v_ = sess.run(v)
+        # tf.global_variables_initializer().run()
         val = sess.run(sy_Yhat, feed_dict={sy_X:Xp})
         return val
 
@@ -137,7 +151,10 @@ def main_cartpole(n_iter=100, gamma=1.0, min_timesteps_per_batch=1000, stepsize=
     ob_dim = env.observation_space.shape[0]
     num_actions = env.action_space.n
     logz.configure_output_dir(logdir)
-    vf = LinearValueFunction()
+    if vf_type == 'linear':
+        vf = LinearValueFunction(**vf_params)
+    elif vf_type == 'nn':
+        vf = NnValueFunction(**vf_params)
 
     # Symbolic variables have the prefix sy_, to distinguish them from the numerical values
     # that are computed later in these function
@@ -417,6 +434,9 @@ def main_pendulum(logdir, seed, n_iter, gamma, min_timesteps_per_batch, initial_
 def main_pendulum1(d):
     return main_pendulum(**d)
 
+def main_cartpole1(d):
+    return main_cartpole(**d)
+
 if __name__ == "__main__":
     if 0:
         main_cartpole(logdir=None) # when you want to start collecting results, set the logdir
@@ -430,7 +450,8 @@ if __name__ == "__main__":
             # dict(logdir='/tmp/ref/linearvf-kl2e-3-seed2', seed=2, desired_kl=2e-3, vf_type='linear', vf_params={}, **general_params),
             # dict(logdir='/tmp/ref/nnvf-kl2e-3-seed2', seed=2, desired_kl=2e-3, vf_type='nn', vf_params=dict(n_epochs=10, stepsize=1e-3), **general_params),
         ]
-        # import multiprocessing
-        # p = multiprocessing.Pool()
-        # p.map(main_pendulum1, params)
-        main_pendulum(None, 0, 300, 0.97, 2500, 1e-3, 2e-3, 'nn', {}, False)
+        import multiprocessing
+        p = multiprocessing.Pool()
+        # p.map(main_cartpole1, params)
+        map(main_pendulum1, params)
+        # main_pendulum(None, 0, 300, 0.97, 2500, 1e-3, 2e-3, 'nn', {}, False)
