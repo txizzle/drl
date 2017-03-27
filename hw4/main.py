@@ -105,11 +105,33 @@ class NnValueFunction(object):
         self.model = model
         
     def fit(self, X, y): # X is (2600, 3), y is (2600, ), Xp is (2600, 7)
+        sess = tf.Session()
+        # Xp = self.preproc(X)
+        # nfeats = Xp.shape[1]
+        nfeats = X.shape[1]
+        sy_X = tf.placeholder(shape=[None, nfeats], name="X", dtype=tf.float32)
+        sy_Y = tf.placeholder(shape =[None, ], name="Y", dtype=tf.float32)
+        sy_h = lrelu(dense(sy_X, 32, "h", weight_init=normc_initializer(1.0)))
+        sy_out = dense(sy_h, 1, "out", weight_init=normc_initializer(0.01))
+        sy_Yhat = tf.squeeze(sy_out, name="yhat")
+        loss_fn = tf.reduce_mean((sy_Yhat - sy_Y)**2)
+        train_op = tf.train.AdamOptimizer(1e-2).minimize(loss_fn)
+        saver = tf.train.Saver()
+        with sess:
+            tf.global_variables_initializer().run()
+            for i in xrange(1000):
+                # sess.run(train_op, feed_dict={sy_X:Xp, sy_Y:y})
+                # print loss_fn.eval(feed_dict={sy_X:Xp, sy_Y:y})
+                sess.run(train_op, feed_dict={sy_X:X, sy_Y:y})
+                print loss_fn.eval(feed_dict={sy_X:X, sy_Y:y})
+            self.save_path = saver.save(sess, "/tmp/model.ckpt")
+
+
         # Keras training
-        model = self.model
-        model = load_model('nnvf.h5')
-        model.fit(X, y, batch_size=64, nb_epoch=10, verbose=1)
-        model.save('nnvf.h5')
+        # model = self.model
+        # model = load_model('nnvf.h5')
+        # model.fit(X, y, batch_size=64, nb_epoch=10, verbose=1)
+        # model.save('nnvf.h5')
        
         # TensorFlow Attempt
         # observations = tf.placeholder(shape=[None, ob_dim, X.shape[1]], name='ob', dtype=tf.float32)
@@ -124,14 +146,31 @@ class NnValueFunction(object):
         # _ = sess.run([update_op], feed_dict={observations:X, values:y})
 
     def predict(self, X):
-        # Keras prediction
-        model = load_model('nnvf.h5')
-        prediction = model.predict(X)
-        # print("X predict shape: " + str(X.shape)) #(2600, 3)
-        # print("prediction shape: " + str(prediction.shape)) # (2600, )
-        # prediction = self.sess.run([prediction], feed_dict={observations:X})
-        # print("prediction shape: " + str(prediction.shape))
-        return np.squeeze(prediction)
+        if self.save_path == None:
+            return np.zeros(X.shape[0])
+        saver = tf.train.Saver()
+        # Xp = self.preproc(X)
+        # nfeats = Xp.shape[1]
+        nfeats = X.shape[1]
+        sy_X = tf.placeholder(shape=[None, nfeats], name="X", dtype=tf.float32)
+        sy_Y = tf.placeholder(shape =[None, ], name="Y", dtype=tf.float32)
+        sy_h = lrelu(dense(sy_X, 32, "h", weight_init=normc_initializer(1.0)))
+        sy_out = dense(sy_h, 1, "out", weight_init=normc_initializer(0.01))
+        sy_Yhat = tf.squeeze(sy_out, name="yhat")
+        with tf.Session() as sess:
+            saver.restore(sess, "/tmp/model.ckpt")
+            # val = sess.run(sy_Yhat, feed_dict={sy_X:Xp})
+            val = sess.run(sy_Yhat, feed_dict={sy_X:X})
+            return val
+
+        # # Keras prediction
+        # model = load_model('nnvf.h5')
+        # prediction = model.predict(X)
+        # # print("X predict shape: " + str(X.shape)) #(2600, 3)
+        # # print("prediction shape: " + str(prediction.shape)) # (2600, )
+        # # prediction = self.sess.run([prediction], feed_dict={observations:X})
+        # # print("prediction shape: " + str(prediction.shape))
+        # return np.squeeze(prediction)
     def preproc(self, X):
         return np.concatenate([np.ones([X.shape[0], 1]), X, np.square(X)/2.0], axis=1)
 
@@ -440,7 +479,7 @@ if __name__ == "__main__":
             # dict(logdir='/tmp/ref/linearvf-kl2e-3-seed2', seed=2, desired_kl=2e-3, vf_type='linear', vf_params={}, **general_params),
             # dict(logdir='/tmp/ref/nnvf-kl2e-3-seed2', seed=2, desired_kl=2e-3, vf_type='nn', vf_params=dict(n_epochs=10, stepsize=1e-3), **general_params),
         ]
-        import multiprocessing
-        p = multiprocessing.Pool()
-        p.map(main_pendulum1, params)
-        # main_pendulum(None, 0, 300, 0.97, 2500, 1e-3, 2e-3, 'nn', {}, False)
+        # import multiprocessing
+        # p = multiprocessing.Pool()
+        # p.map(main_pendulum1, params)
+        main_pendulum(None, 0, 300, 0.97, 2500, 1e-3, 2e-3, 'nn', {}, False)
