@@ -22,6 +22,7 @@ def dense(x, size, name, weight_init=None):
     """
     Dense (fully connected) layer
     """
+    # tf.get_variable_scope().reuse_variables()
     w = tf.get_variable(name + "/w", [x.get_shape()[1], size], initializer=weight_init)
     b = tf.get_variable(name + "/b", [size], initializer=tf.zeros_initializer())
     return tf.matmul(x, w) + b
@@ -92,85 +93,35 @@ class LinearValueFunction(object):
         return np.concatenate([np.ones([X.shape[0], 1]), X, np.square(X)/2.0], axis=1)
 
 class NnValueFunction(object):
-    def __init__(self, ob_dim):
-        self.ob_dim = ob_dim
-        # print("ob dim: " + str(ob_dim))
-        # Keras Setup
-        model = Sequential()
-        model.add(Dense(32, activation='relu', input_shape=(ob_dim,)))
-        model.add(Dense(32, activation='relu'))
-        model.add(Dense(1))
-        model.compile(loss='msle', optimizer='adam')
-        model.save('nnvf.h5')
-        self.model = model
-        
-    def fit(self, X, y): # X is (2600, 3), y is (2600, ), Xp is (2600, 7)
-        sess = tf.Session()
-        # Xp = self.preproc(X)
-        # nfeats = Xp.shape[1]
-        nfeats = X.shape[1]
+    save_path = None
+    def fit(self, X, y):
+        Xp = self.preproc(X)
+        sess = tf.get_default_session()
+        nfeats = Xp.shape[1]
         sy_X = tf.placeholder(shape=[None, nfeats], name="X", dtype=tf.float32)
         sy_Y = tf.placeholder(shape =[None, ], name="Y", dtype=tf.float32)
-        sy_h = lrelu(dense(sy_X, 32, "h", weight_init=normc_initializer(1.0)))
-        sy_out = dense(sy_h, 1, "out", weight_init=normc_initializer(0.01))
+        sy_h1 = tf.contrib.layers.relu(sy_X, 24, weights_initializer=normc_initializer(1.0), biases_initializer=tf.zeros_initializer())
+        sy_h2 = tf.contrib.layers.relu(sy_h1, 16, weights_initializer=normc_initializer(1.0), biases_initializer=tf.zeros_initializer())
+        sy_out = tf.contrib.layers.linear(sy_h2, 1, weights_initializer=normc_initializer(0.05))
         sy_Yhat = tf.squeeze(sy_out, name="yhat")
         loss_fn = tf.reduce_mean((sy_Yhat - sy_Y)**2)
-        train_op = tf.train.AdamOptimizer(1e-2).minimize(loss_fn)
-        saver = tf.train.Saver()
-        with sess:
-            tf.global_variables_initializer().run()
-            for i in xrange(1000):
-                # sess.run(train_op, feed_dict={sy_X:Xp, sy_Y:y})
-                # print loss_fn.eval(feed_dict={sy_X:Xp, sy_Y:y})
-                sess.run(train_op, feed_dict={sy_X:X, sy_Y:y})
-                print loss_fn.eval(feed_dict={sy_X:X, sy_Y:y})
-            self.save_path = saver.save(sess, "/tmp/model.ckpt")
+        train_op = tf.train.AdamOptimizer(1e-1).minimize(loss_fn)
+        tf.global_variables_initializer().run()
+        for i in xrange(10000):
+            sess.run(train_op, feed_dict={sy_X:Xp, sy_Y:y})
+            if i%1000 == 0:
+                print "training loss at timestep %d = "%i + str(loss_fn.eval(feed_dict={sy_X:Xp, sy_Y:y}))
 
-
-        # Keras training
-        # model = self.model
-        # model = load_model('nnvf.h5')
-        # model.fit(X, y, batch_size=64, nb_epoch=10, verbose=1)
-        # model.save('nnvf.h5')
-       
-        # TensorFlow Attempt
-        # observations = tf.placeholder(shape=[None, ob_dim, X.shape[1]], name='ob', dtype=tf.float32)
-        # values = tf.placeholder(shape=[None, y.shape[0]], name="val", dtype=tf.float32)
-        # h1 = lrelu(dense(observations, 32, "h1", weight_init=normc_initializer(1.0))) # hidden layer
-        # prediction = dense(h1, y.shape[0], "pred", weight_init=normc_initializer(0.1))
-        # cost = tf.reduce_mean(tf.nn.l2_loss(prediction - values))
-        # update_op = tf.train.AdamOptimizer().minimize(cost)
-        # sess = tf.Session()
-        # sess.__enter__() # equivalent to `with sess:`
-        # tf.global_variables_initializer().run() #pylint: disable=E1101
-        # _ = sess.run([update_op], feed_dict={observations:X, values:y})
 
     def predict(self, X):
         if self.save_path == None:
             return np.zeros(X.shape[0])
-        saver = tf.train.Saver()
-        # Xp = self.preproc(X)
-        # nfeats = Xp.shape[1]
-        nfeats = X.shape[1]
-        sy_X = tf.placeholder(shape=[None, nfeats], name="X", dtype=tf.float32)
-        sy_Y = tf.placeholder(shape =[None, ], name="Y", dtype=tf.float32)
-        sy_h = lrelu(dense(sy_X, 32, "h", weight_init=normc_initializer(1.0)))
-        sy_out = dense(sy_h, 1, "out", weight_init=normc_initializer(0.01))
-        sy_Yhat = tf.squeeze(sy_out, name="yhat")
-        with tf.Session() as sess:
-            saver.restore(sess, "/tmp/model.ckpt")
-            # val = sess.run(sy_Yhat, feed_dict={sy_X:Xp})
-            val = sess.run(sy_Yhat, feed_dict={sy_X:X})
-            return val
+        Xp = self.preproc(X)
+        sess = tf.get_default_session()
+        tf.global_variables_initializer().run()
+        val = sess.run(sy_Yhat, feed_dict={sy_X:Xp})
+        return val
 
-        # # Keras prediction
-        # model = load_model('nnvf.h5')
-        # prediction = model.predict(X)
-        # # print("X predict shape: " + str(X.shape)) #(2600, 3)
-        # # print("prediction shape: " + str(prediction.shape)) # (2600, )
-        # # prediction = self.sess.run([prediction], feed_dict={observations:X})
-        # # print("prediction shape: " + str(prediction.shape))
-        # return np.squeeze(prediction)
     def preproc(self, X):
         return np.concatenate([np.ones([X.shape[0], 1]), X, np.square(X)/2.0], axis=1)
 
@@ -307,7 +258,7 @@ def main_pendulum(logdir, seed, n_iter, gamma, min_timesteps_per_batch, initial_
     if vf_type == 'linear':
         vf = LinearValueFunction(**vf_params)
     elif vf_type == 'nn':
-        vf = NnValueFunction(ob_dim=ob_dim, **vf_params)
+        vf = NnValueFunction(**vf_params)
 
     # YOUR CODE HERE
     # Symbolic variables have the prefix sy_, to distinguish them from the numerical values
