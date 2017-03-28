@@ -84,60 +84,43 @@ class LinearValueFunction(object):
         if self.coef is None:
             return np.zeros(X.shape[0])
         else:
-            # print("X predict shape: " + str(X.shape)) #(2600, 3)
-            # print("X preproc predict shape: " + str(self.preproc(X).shape)) #(2600, 7)
-            # print("coef predict shape: " + str(self.coef.shape)) #(7,)
-            # print("prediction shape: " + str(self.preproc(X).dot(self.coef).shape)) # (2600, )
             return self.preproc(X).dot(self.coef)
     def preproc(self, X):
         return np.concatenate([np.ones([X.shape[0], 1]), X, np.square(X)/2.0], axis=1)
 
 class NnValueFunction(object):
-    save_path = None
+    coeffs = None
     def __init__(self, n_epochs, stepsize):
+        self.net = None
         self.n_epochs = n_epochs
         self.stepsize = stepsize
-    def fit(self, X, y):
-        Xp = self.preproc(X)
-        sess = tf.get_default_session()
-        nfeats = Xp.shape[1]
-        sy_X = tf.placeholder(shape=[None, nfeats], name="X", dtype=tf.float32)
-        sy_Y = tf.placeholder(shape =[None, ], name="Y", dtype=tf.float32)
-        sy_h1 = tf.contrib.layers.relu(sy_X, 24, weights_initializer=normc_initializer(1.0), biases_initializer=tf.zeros_initializer())
-        sy_h2 = tf.contrib.layers.relu(sy_h1, 16, weights_initializer=normc_initializer(1.0), biases_initializer=tf.zeros_initializer())
-        sy_out = tf.contrib.layers.linear(sy_h2, 1, weights_initializer=normc_initializer(0.05))
-        sy_Yhat = tf.squeeze(sy_out, name="yhat")
-        loss_fn = tf.reduce_mean((sy_Yhat - sy_Y)**2)
-        train_op = tf.train.AdamOptimizer(1e-1).minimize(loss_fn)
-
-        tf.add_to_collection('vars', sy_h1)
-        tf.add_to_collection('vars', sy_h2)
-        tf.add_to_collection('vars', sy_out)
-        saver = tf.train.Saver()
-        sess = tf.Session()
-        tf.global_variables_initializer().run()
-        for i in xrange(10000):
-            sess.run(train_op, feed_dict={sy_X:Xp, sy_Y:y})
-            if i%1000 == 0:
-                print "training loss at timestep %d = "%i + str(loss_fn.eval(feed_dict={sy_X:Xp, sy_Y:y}))
-        saver.save(sess, 'my-model')
-
-    def predict(self, X):
-        if self.save_path == None:
-            return np.zeros(X.shape[0])
-        Xp = self.preproc(X)
-        sess = tf.get_default_session()
-        new_saver = tf.train.import_meta_graph('my-model.meta')
-        new_saver.restore(sess, tf.train.latest_checkpoint('./'))
-        all_vars = tf.get_collection('vars')
-        for v in all_vars:
-            v_ = sess.run(v)
-        # tf.global_variables_initializer().run()
-        val = sess.run(sy_Yhat, feed_dict={sy_X:Xp})
-        return val
-
+    def init_net(self, shape):
+        self.sy_x = tf.placeholder(tf.float32, shape=[None, shape], name="x")
+        self.sy_y = tf.placeholder(tf.float32, shape=[None], name="y")
+        h1 = lrelu(dense(self.sy_x, 32, 'h1', tf.random_uniform_initializer(-1.0, 1.0)))
+        h2 = lrelu(dense(h1, 16, 'h2', tf.random_uniform_initializer(-1.0, 1.0)))
+        self.net = dense(h2, 1, 'out', tf.random_uniform_initializer(-0.1, 0.1))
+        self.net = tf.reshape(self.net, (-1,))
+        l2 = (self.net - self.sy_y)**2
+        self.train = tf.train.AdamOptimizer(1e-1).minimize(l2)
+        self.sess = tf.get_default_session()
+        self.sess.run(tf.initialize_all_variables())
     def preproc(self, X):
         return np.concatenate([np.ones([X.shape[0], 1]), X, np.square(X)/2.0], axis=1)
+
+    def fit(self, X, y):
+        featmat = self.preproc(X)
+        if self.net is None:
+            self.init_net(featmat.shape[1])
+        for _ in range(self.n_epochs):
+            self.sess.run(self.train, {self.sy_x: featmat, self.sy_y: y})
+
+    def predict(self, X):
+        if self.net is None:
+            return np.zeros(X.shape[0])
+        else:
+            ret = self.sess.run(self.net, {self.sy_x: self.preproc(X)})
+            return np.reshape(ret, (ret.shape[0],))
 
 def lrelu(x, leak=0.2):
     f1 = 0.5 * (1 + leak)
@@ -146,7 +129,7 @@ def lrelu(x, leak=0.2):
 
 
 
-def main_cartpole(n_iter=100, gamma=1.0, min_timesteps_per_batch=1000, stepsize=1e-2, animate=True, logdir=None):
+def main_cartpole(logdir, seed, n_iter, gamma, min_timesteps_per_batch, desired_kl, initial_stepsize, vf_type, vf_params, animate=False):
     env = gym.make("CartPole-v0")
     ob_dim = env.observation_space.shape[0]
     num_actions = env.action_space.n
@@ -249,7 +232,7 @@ def main_cartpole(n_iter=100, gamma=1.0, min_timesteps_per_batch=1000, stepsize=
         vf.fit(ob_no, vtarg_n) #Re-fit the baseline
 
         # Policy update
-        _, oldlogits_na = sess.run([update_op, sy_logits_na], feed_dict={sy_ob_no:ob_no, sy_ac_n:ac_n, sy_adv_n:standardized_adv_n, sy_stepsize:stepsize})
+        _, oldlogits_na = sess.run([update_op, sy_logits_na], feed_dict={sy_ob_no:ob_no, sy_ac_n:ac_n, sy_adv_n:standardized_adv_n, sy_stepsize:initial_stepsize})
         kl, ent = sess.run([sy_kl, sy_ent], feed_dict={sy_ob_no:ob_no, sy_oldlogits_na:oldlogits_na})
 
         # Log diagnostics
@@ -444,14 +427,14 @@ if __name__ == "__main__":
         general_params = dict(gamma=0.97, animate=False, min_timesteps_per_batch=2500, n_iter=300, initial_stepsize=1e-3)
         params = [
             dict(logdir='/tmp/ref/linearvf-kl2e-3-seed0', seed=0, desired_kl=2e-3, vf_type='linear', vf_params={}, **general_params),
-            # dict(logdir='/tmp/ref/nnvf-kl2e-3-seed0', seed=0, desired_kl=2e-3, vf_type='nn', vf_params=dict(n_epochs=10, stepsize=1e-3), **general_params),
+            dict(logdir='/tmp/ref/nnvf-kl2e-3-seed0', seed=0, desired_kl=2e-3, vf_type='nn', vf_params=dict(n_epochs=10, stepsize=1e-3), **general_params),
             dict(logdir='/tmp/ref/linearvf-kl2e-3-seed1', seed=1, desired_kl=2e-3, vf_type='linear', vf_params={}, **general_params),
-            # dict(logdir='/tmp/ref/nnvf-kl2e-3-seed1', seed=1, desired_kl=2e-3, vf_type='nn', vf_params=dict(n_epochs=10, stepsize=1e-3), **general_params),
+            dict(logdir='/tmp/ref/nnvf-kl2e-3-seed1', seed=1, desired_kl=2e-3, vf_type='nn', vf_params=dict(n_epochs=10, stepsize=1e-3), **general_params),
             # dict(logdir='/tmp/ref/linearvf-kl2e-3-seed2', seed=2, desired_kl=2e-3, vf_type='linear', vf_params={}, **general_params),
             # dict(logdir='/tmp/ref/nnvf-kl2e-3-seed2', seed=2, desired_kl=2e-3, vf_type='nn', vf_params=dict(n_epochs=10, stepsize=1e-3), **general_params),
         ]
         import multiprocessing
         p = multiprocessing.Pool()
-        # p.map(main_cartpole1, params)
-        map(main_pendulum1, params)
+        p.map(main_pendulum1, params)
+        # map(main_pendulum1, params)
         # main_pendulum(None, 0, 300, 0.97, 2500, 1e-3, 2e-3, 'nn', {}, False)

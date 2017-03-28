@@ -32,5 +32,17 @@
 \newpage
 \section{Neural Network Value Function}
 
+\begin{figure}[h]
+    \center
+		\includegraphics[width=0.9\textwidth]{nnvf_cartpole.png}
+    \caption{The Neural Network Value function performs marginally better than the Linear Value Function on the cartpole task. The Neural Network Value function converges faster and has less variance overall. For the hyperparameters, the default training parameters were used: n\_epochs=10, stepsize=1e-3. The architecture was a simple two hidden layer feedforward neural network, with one hidden layer of 32 neurons and the second layer of 16 neurons.}
+\end{figure}
+
+\begin{figure}[h]
+    \center
+		\includegraphics[width=0.9\textwidth]{nnvf_pendulum.png}
+    \caption{The Neural Network Value function performs much better than the Linear Value Function on the pendulum task. The overall mean episode reward increases much faster than the linear value function. This may be because the task is harder to learn for a linear matrix model, so a neural network is better able to learn this more complex task. For the hyperparameters, the default training parameters were used: n\_epochs=10, stepsize=1e-3. The architecture was a simple two hidden layer feedforward neural network, with one hidden layer of 32 neurons and the second layer of 16 neurons.}
+\end{figure}
+
 
 \end{document}
