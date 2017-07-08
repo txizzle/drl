@@ -57,20 +57,20 @@ def main():
     # Split data into train and test set
     n = obs_data.shape[0]
     obs_data, act_data = shuffle(obs_data, act_data, random_state=0)
-    X_train = np.array(obs_data[:n*0.8])
-    X_test = np.array(obs_data[n*0.8:])
-    y_train = np.array(act_data[:n*0.8])
-    y_test = np.array(act_data[n*0.8:])
+    split_val = int(n*0.8)
+    X_train = np.array(obs_data[:split_val])
+    X_test = np.array(obs_data[split_val:])
+    y_train = np.array(act_data[:split_val])
+    y_test = np.array(act_data[split_val:])
 
-    X_train = X_train.reshape(X_train.shape[0], obs_data.shape[1], 1)
-    X_test = X_test.reshape(X_test.shape[0], obs_data.shape[1], 1)
+    X_train = X_train.reshape(X_train.shape[0], obs_data.shape[1])
+    X_test = X_test.reshape(X_test.shape[0], obs_data.shape[1])
     Y_train = y_train.reshape(y_train.shape[0], act_data.shape[2])
     Y_test = y_test.reshape(y_test.shape[0], act_data.shape[2])
 
     # Create a feedforward neural network
     model = Sequential()
-    model.add(Dense(128, activation='relu', input_shape=(obs_data.shape[1], 1)))
-    model.add(Flatten())
+    model.add(Dense(128, activation='relu', input_shape=(obs_data.shape[1],)))
     model.add(Dense(128, activation='relu'))
     model.add(Dense(128, activation='relu'))
     model.add(Dense(act_data.shape[2], activation='linear'))

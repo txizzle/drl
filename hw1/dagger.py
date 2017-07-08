@@ -52,8 +52,7 @@ def main():
 
     # Create a feedforward neural network
     model = Sequential()
-    model.add(Dense(128, activation='relu', input_shape=(obs_data.shape[1], 1)))
-    model.add(Flatten())
+    model.add(Dense(128, activation='relu', input_shape=(obs_data.shape[1],)))
     model.add(Dense(128, activation='relu'))
     model.add(Dense(128, activation='relu'))
     model.add(Dense(act_data.shape[2], activation='linear'))
@@ -72,8 +71,8 @@ def main():
         y_train = np.array(act_data[:split_val])
         y_test = np.array(act_data[split_val:])
 
-        X_train = X_train.reshape(X_train.shape[0], obs_data.shape[1], 1)
-        X_test = X_test.reshape(X_test.shape[0], obs_data.shape[1], 1)
+        X_train = X_train.reshape(X_train.shape[0], obs_data.shape[1])
+        X_test = X_test.reshape(X_test.shape[0], obs_data.shape[1])
         Y_train = y_train.reshape(y_train.shape[0], act_data.shape[2])
         Y_test = y_test.reshape(y_test.shape[0], act_data.shape[2])
         
