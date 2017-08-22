@@ -1,5 +1,5 @@
 HW3 DQN
-Ted Xiao, SID 24452530
+Ted Xiao
 
 To run DQN on Pong with pixels, run the expected: `python run_dqn_atari.py`
 To run DQN on Pong with RAM, adjust the designed learning rate (AKA learning rate multipler) on line 133 of "run_dqn_ram.py" and then run: `python run_dqn_ram.py`
